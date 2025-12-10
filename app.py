@@ -1,17 +1,17 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from dotenv import load_dotenv  # Import dotenv
+from dotenv import load_dotenv
 
 # LangChain Imports
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
+# Removed FastEmbedSparse from imports
+from langchain_qdrant import QdrantVectorStore, RetrievalMode
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
 # --- CONFIGURATION ---
-# Load environment variables from .env file
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -19,11 +19,10 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 QDRANT_ENDPOINT = os.getenv("QDRANT_ENDPOINT")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
 
-# Check if keys are loaded (Optional safety check)
 if not OPENAI_API_KEY or not QDRANT_API_KEY:
     raise ValueError("❌ API Keys not found. Make sure .env file is created.")
 
-# --- PROMPT TEMPLATES (STRICT JSON MODE) ---
+# --- PROMPT TEMPLATES ---
 
 CHAT_TEMPLATE = """
 You are a helpful assistant. Answer the question strictly based on the provided Context.
@@ -136,22 +135,22 @@ Question: {question}
 # --- DATABASE CONNECTION ---
 
 def get_retriever(collection_name):
-    """Initializes the Qdrant Hybrid Retriever."""
+    """Initializes the Qdrant Dense Retriever (Standard Semantic Search)."""
     print("Connecting to Vector Store...")
-    # Explicitly passing API key from env variable
+    
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=OPENAI_API_KEY)
     
-    # FastEmbedSparse is required for Hybrid Search (Qdrant/bm25)
-    sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
+    # We removed FastEmbedSparse here.
+    # We switch retrieval_mode to DENSE.
     
     qdrant = QdrantVectorStore.from_existing_collection(
         embedding=embeddings,
-        sparse_embedding=sparse_embeddings,
         url=QDRANT_ENDPOINT,
         api_key=QDRANT_API_KEY,
         collection_name=collection_name,
-        retrieval_mode=RetrievalMode.HYBRID,
+        retrieval_mode=RetrievalMode.DENSE, # Changed from HYBRID to DENSE
     )
+    
     # Using k=5 to get top 5 relevant chunks
     return qdrant.as_retriever(search_kwargs={"k": 5})
 
@@ -160,10 +159,8 @@ def get_retriever(collection_name):
 def create_chain(retriever, template_string):
     """Creates a RAG chain with JSON enforcement."""
     
-    # 1. The Prompt
     prompt = ChatPromptTemplate.from_template(template_string)
     
-    # 2. The Model (With JSON Mode Enabled)
     model = ChatOpenAI(
         temperature=0, 
         model="gpt-4o-mini",
@@ -171,10 +168,8 @@ def create_chain(retriever, template_string):
         api_key=OPENAI_API_KEY
     )
     
-    # 3. The Output Parser
     parser = JsonOutputParser()
 
-    # 4. The Chain (LCEL)
     chain = (
         {"context": retriever, "question": RunnablePassthrough()}
         | prompt
@@ -188,11 +183,9 @@ def create_chain(retriever, template_string):
 app = Flask(__name__)
 CORS(app)
 
-# Initialize Resources
 try:
     retriever = get_retriever(COLLECTION_NAME)
     
-    # Create chains for each endpoint
     chains = {
         "chat": create_chain(retriever, CHAT_TEMPLATE),
         "exercises": create_chain(retriever, EXERCISES_TEMPLATE),
@@ -200,12 +193,11 @@ try:
         "links": create_chain(retriever, LINKS_TEMPLATE),
         "summary": create_chain(retriever, SUMMARY_TEMPLATE),
     }
-    print("✅ System initialized successfully.")
+    print("✅ System initialized successfully (Dense Mode).")
 except Exception as e:
     print(f"❌ Initialization Error: {e}")
 
 def process_request(chain_key, query):
-    """Helper to run chain and handle errors."""
     try:
         response = chains[chain_key].invoke(query)
         return response
@@ -215,19 +207,14 @@ def process_request(chain_key, query):
 
 @app.route("/", methods=["GET"])
 def confirmation():
-    return "Server is running (RAG Mode)..."
+    return "Server is running (RAG Mode - Dense Only)..."
 
 @app.route("/chat", methods=["POST"])
 def chat_endpoint():
     data = request.get_json()
     query = data.get("query", "")
-    
     ai_response = process_request("chat", query)
-    
-    return jsonify({
-        "user": query, 
-        "ai_message": ai_response
-    })
+    return jsonify({"user": query, "ai_message": ai_response})
 
 @app.route("/chat/exercises", methods=["POST"])
 def exercises_endpoint():
