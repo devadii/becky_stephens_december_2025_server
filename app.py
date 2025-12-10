@@ -1,6 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv  # Import dotenv
 
 # LangChain Imports
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -10,10 +11,17 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
 # --- CONFIGURATION ---
-OPENAI_API_KEY = "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"
-QDRANT_API_KEY = "1AA6g1qbzOfRGAto149kePIZdl6ElfIk1ojpsMF-ee2Eidf7VNqbwA"
-QDRANT_ENDPOINT = "https://b2cf1251-d3f6-4a22-bd3e-578cf632d2f3.europe-west3-0.gcp.cloud.qdrant.io:6333"
-COLLECTION_NAME = "becky_stephens_b"
+# Load environment variables from .env file
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+QDRANT_ENDPOINT = os.getenv("QDRANT_ENDPOINT")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME")
+
+# Check if keys are loaded (Optional safety check)
+if not OPENAI_API_KEY or not QDRANT_API_KEY:
+    raise ValueError("❌ API Keys not found. Make sure .env file is created.")
 
 # --- PROMPT TEMPLATES (STRICT JSON MODE) ---
 
@@ -130,7 +138,7 @@ Question: {question}
 def get_retriever(collection_name):
     """Initializes the Qdrant Hybrid Retriever."""
     print("Connecting to Vector Store...")
-    # API KEY added here as per previous fix
+    # Explicitly passing API key from env variable
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=OPENAI_API_KEY)
     
     # FastEmbedSparse is required for Hybrid Search (Qdrant/bm25)
@@ -156,7 +164,6 @@ def create_chain(retriever, template_string):
     prompt = ChatPromptTemplate.from_template(template_string)
     
     # 2. The Model (With JSON Mode Enabled)
-    # response_format={"type": "json_object"} ensures strict JSON output
     model = ChatOpenAI(
         temperature=0, 
         model="gpt-4o-mini",
@@ -200,12 +207,10 @@ except Exception as e:
 def process_request(chain_key, query):
     """Helper to run chain and handle errors."""
     try:
-        # invoke() returns a python dict because of JsonOutputParser
         response = chains[chain_key].invoke(query)
         return response
     except Exception as e:
         print(f"Error in {chain_key}: {e}")
-        # Return a JSON error that matches the structure expected by frontend usually
         return {"error": True, "message": "Failed to generate response", "details": str(e)}
 
 @app.route("/", methods=["GET"])
@@ -219,7 +224,6 @@ def chat_endpoint():
     
     ai_response = process_request("chat", query)
     
-    # Construct final response wrapper
     return jsonify({
         "user": query, 
         "ai_message": ai_response
@@ -229,7 +233,6 @@ def chat_endpoint():
 def exercises_endpoint():
     data = request.get_json()
     query = data.get("query", "")
-    # The prompt already enforces the structure, we just pass it through
     return jsonify(process_request("exercises", query))
 
 @app.route("/chat/stories", methods=["POST"])
