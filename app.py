@@ -10,88 +10,118 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
 # --- CONFIGURATION ---
-# ⚠️ WARNING: Your API keys are visible here. In production, use os.getenv()
-os.environ["OPENAI_API_KEY"] = "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"
+OPENAI_API_KEY = "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"
 QDRANT_API_KEY = "1AA6g1qbzOfRGAto149kePIZdl6ElfIk1ojpsMF-ee2Eidf7VNqbwA"
 QDRANT_ENDPOINT = "https://b2cf1251-d3f6-4a22-bd3e-578cf632d2f3.europe-west3-0.gcp.cloud.qdrant.io:6333"
 COLLECTION_NAME = "becky_stephens_b"
 
-# --- PROMPT TEMPLATES ---
+# --- PROMPT TEMPLATES (STRICT JSON MODE) ---
 
 CHAT_TEMPLATE = """
-You are a helpful assistant. Give answer to the question strictly from the given context.
+You are a helpful assistant. Answer the question strictly based on the provided Context.
 
-Answer should must contain two parts. First part should be brief introduction of question from the given context. Second part should be main answer to the question from the given context. This main answer should must be precise, detailed and in categories.
+Your response must be a valid JSON object strictly adhering to the following structure:
 
-Answer should be in following JSON string format.
-object = {{ "heading": category heading, "description": category description in bullet points in array format}}
-Append each object in to array like following format
-main answer = [object, object, ....]
-So the final format is given as
-output =  {{ "message_intro": first part, "message_explaination":  [object, object, ......], "error": false}}
-Finally this end result shoud only be a pure json 
+{{
+    "message_intro": "A brief introduction to the answer based on the context.",
+    "message_explaination": [
+        {{
+            "heading": "Category Heading",
+            "description": ["Bullet point 1", "Bullet point 2", "Bullet point 3"]
+        }}
+    ],
+    "error": false
+}}
 
-if the context does not contain the answer to the question then return the exact same json response given below:
+Guidelines:
+1. "message_intro": Brief summary.
+2. "message_explaination": The main detailed answer categorized. The "description" must be an array of strings (bullet points).
+3. If the Context does not contain the answer, return exactly:
 {{
     "message_intro": "We can only provide answers from Sterling Road’s content directory. Check out the Categories listed below for the topics covered.", 
     "message_explaination": [], 
     "error": true
 }}
- 
-Context : {context}
+
+Context: {context}
 Question: {question}
 """
 
 EXERCISES_TEMPLATE = """
-Give the exercises that are actionable and practicable from the given Context. The exercises should be relevant to the given Question. Also provide content_source link from the context for each exercise that is nearest to the exercise in the context if exists.
+Identify actionable and practicable exercises from the given Context relevant to the Question.
 
-These exercises should be in multiple short independent paragraphs of maximumt 3 lines and should must have following JSON format:
-        
-object = {{"description": exercises paragraph, "source": link to exercise}}
-array of objects = [object, object, ....]
-So the final format is given as:
-{{"response":  [object, object, ......], "error": false, "status": "success"}}
+Output must be a valid JSON object strictly adhering to the following structure:
 
-Context : {context}
+{{
+    "response": [
+        {{
+            "description": "A short independent paragraph (max 3 lines) describing the exercise.",
+            "source": "URL link to the content source (or null if not found)"
+        }}
+    ],
+    "error": false,
+    "status": "success"
+}}
+
+Context: {context}
 Question: {question}
 """
 
 STORIES_TEMPLATE = """
-Give the stories or past events from the given context. These stories or past events should be relevant to the given question.
-        
-if there are multiple stories or past events then these stories or past events should be in multiple independent paragraphs, if there is only one story or past event then it should be a a single independent paragraph.
+Identify stories or past events from the given Context relevant to the Question.
 
-These stories or past events should must have following JSON format:
+Output must be a valid JSON object strictly adhering to the following structure:
 
-object = {{"description": stories or past events paragraph, "source": link to the story of past event}}
-array of objects = [object, object, ....]
-So the final formate is given as:
-{{"response":  [object, object, ......], "error": false, "status": "success"}}
+{{
+    "response": [
+        {{
+            "description": "A standalone paragraph describing the story or event.",
+            "source": "URL link to the story (or null if not found)"
+        }}
+    ],
+    "error": false,
+    "status": "success"
+}}
 
-if past event or story does not exists in the give context the retun followig json:
-{{"response":  [{{"description": "No story found"}}], "error": false, "status": "success"}}
+If no stories are found in the context, return:
+{{
+    "response": [{{"description": "No story found"}}],
+    "error": false,
+    "status": "success"
+}}
 
-Context : {context}
+Context: {context}
 Question: {question}
 """
 
 LINKS_TEMPLATE = """
-From the given context provide all content_source link, whos content is relvent to the given question and has answer for the given question. 
-       
-Return the response in following JSON format:
+Identify all content source links from the Context that contain answers relevant to the Question.
 
-{{ "links": [ {{"title": "frist link's title", "link": "first link"}}, ... ] }}
+Output must be a valid JSON object strictly adhering to the following structure:
 
-Context : {context}
+{{
+    "links": [
+        {{
+            "title": "Title of the link",
+            "link": "The actual URL"
+        }}
+    ]
+}}
+
+Context: {context}
 Question: {question}
 """
 
 SUMMARY_TEMPLATE = """
-Summarize the given context precisely in JSON format.
+Summarize the given context precisely.
 
-{{"summary": "generated summary"}}
+Output must be a valid JSON object strictly adhering to the following structure:
 
-Context : {context}
+{{
+    "summary": "The generated summary text."
+}}
+
+Context: {context}
 Question: {question}
 """
 
@@ -100,7 +130,8 @@ Question: {question}
 def get_retriever(collection_name):
     """Initializes the Qdrant Hybrid Retriever."""
     print("Connecting to Vector Store...")
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    # API KEY added here as per previous fix
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=OPENAI_API_KEY)
     
     # FastEmbedSparse is required for Hybrid Search (Qdrant/bm25)
     sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
@@ -125,14 +156,15 @@ def create_chain(retriever, template_string):
     prompt = ChatPromptTemplate.from_template(template_string)
     
     # 2. The Model (With JSON Mode Enabled)
-    # model_kwargs={"response_format": ...} ensures GPT gives valid JSON
+    # response_format={"type": "json_object"} ensures strict JSON output
     model = ChatOpenAI(
         temperature=0, 
         model="gpt-4o-mini",
-        model_kwargs={"response_format": {"type": "json_object"}}
+        model_kwargs={"response_format": {"type": "json_object"}},
+        api_key=OPENAI_API_KEY
     )
     
-    # 3. The Output Parser (Handles string -> dict conversion automatically)
+    # 3. The Output Parser
     parser = JsonOutputParser()
 
     # 4. The Chain (LCEL)
@@ -173,6 +205,7 @@ def process_request(chain_key, query):
         return response
     except Exception as e:
         print(f"Error in {chain_key}: {e}")
+        # Return a JSON error that matches the structure expected by frontend usually
         return {"error": True, "message": "Failed to generate response", "details": str(e)}
 
 @app.route("/", methods=["GET"])
@@ -216,6 +249,3 @@ def summary_endpoint():
     data = request.get_json()
     query = data.get("query", "")
     return jsonify(process_request("summary", query))
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
